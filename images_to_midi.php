@@ -18,6 +18,9 @@ $keylocations = null;
 $min_black_key_width = null;
 $white_key_width = null;
 
+
+$DEBUG_read_points = true;
+
 $piano_keys = array(
 1,0,1,1,0,1,0,1,1,0,1,0,
 1,0,1,1,0,1,0,1,1,0,1,0,
@@ -34,33 +37,59 @@ $piano_keys = array(
 //$piano_keys = array(a,b,c,d,e,f,g,h,i,0,1,0,1);
 
 $location_precent = array(
-0.5,
-0.2,
-0.7,
-0.2,
--0.15,//borde flytta minus ca 0.15
-0.45,
+0.5,//A
+0.05,
+0.7,//B
+0.2,//C
+0,//borde flytta minus ca 0.15
+0.45,//D
 0,
-0.7,
-0.2,
--0.15,//Borde flytta minus ca 0.15
-0.4,
+0.7,//E
+0.2,//F
+0.02,//Borde flytta minus ca 0.15
+0.4,//G
 0
 );
+
+
+$specified_instrumet_colors = array(
+	5700886 => 'green',
+	4521729=> 'green',
+	3669504 => 'green',
+	1630974 => 'blue',
+	1732280 => 'blue'
+	//1402032 => 'blue',//darkblue edge
+
+	//539152 => darkgreen text
+	//3272389 => //green blue edge
+	
+);
+
+$midi_instruments = array();
 
 // we are expecting 52 white keys and 36 black
 
 $instrumet_colors = array();
+$video_colors = array();
 
+$marking = true;
+if($marking){
+	echo("Creating markings\n");
+	@mkdir('markings');
+	passthru('rm -r markings');
+	mkdir('markings');
+}
 $keys = array();
 $ready = false;
 $default_colors = array();
 $ending_frame_nr = count($scanned_directory)-1;
 $frame_nr = 0;
 foreach($scanned_directory AS $frame_key => $frame_image_file){
+	if(strpos($frame_image_file, 'mark.png') !== false){
+		continue;
+	}
 
 	$im = imagecreatefrompng($image_folder.$frame_image_file);
-	$red = imagecolorallocate($im, 255, 0, 0);
 
 	if(is_null($width)){
 		$width = imagesx($im);
@@ -88,133 +117,85 @@ foreach($scanned_directory AS $frame_key => $frame_image_file){
 	$i=0;
 	$colors = array();
 	$color_distance = array();
+	
+	//foreach key
 	while(88>$i){
+
+		$pressed = "_";
 
 		$x = $white_keys*$white_key_width;
 
-
-		//echo "key $i remanider:".($i%12)."\n";
 		
-		$y = 0;
+		$y = intval($height/2);
 		$precent = $location_precent[$i%12];
+	
+		//if white key
 		if($piano_keys[$i] == 1){
 			$precent = 0.5;
 			$white_keys++;
-			$y = $height-1;
+		}else{
 		}
 
-		$x += $white_key_width*$precent;
+		$x += intval($white_key_width*$precent);
 		
-		//echo "x $x\n";
 
 
-		$rgb = imagecolorat($im, intval($x), $y);
-		//imagefilledrectangle($im, intval($x), $y-1, intval($x)+1, $y, $red);
-		$r = ($rgb >> 16) & 0xFF;
-		$g = ($rgb >> 8) & 0xFF;
-		$b = $rgb & 0xFF;
-		
-		$col = array($r,$g,$b);
 
-		//echo("key: $i, ($x,$y) ($r,$g,$b)\n");
-		
-		$squared_contrast = (
-			$r * $r * .299 +
-			$g * $g * .587 +
-			$b * $b * .114
-		    );
-
-			//$light[] = intval($squared_contrast);
-
-
-			//if(is_null($last)){
-				
-			//}
-
-		$pixel = 0;	
-		if($squared_contrast > pow(130, 2)){
-			$pixel = 1;	//light key
+		$rgb = imagecolorat($im, $x, $y);
+		$inst = get_instrument($rgb);
+		$analyse_pixel = false;
+		if(isset($specified_instrumet_colors[$rgb])){
+			$analyse_pixel = true;
 		}
+		if($analyse_pixel){
+			$inst1 = get_instrument(imagecolorat($im, $x, $y-1));
+			$inst2 = get_instrument(imagecolorat($im, $x, $y+1));
+			$inst3 = get_instrument(imagecolorat($im, $x, $y+2));
 
-		$colors[] = $col;
-
-
-		if($ready){
-			//we have the data we need we watch out for key presses we know at what pixels to check
-
-			$pressed = "_";
-
-			$diff = colorDiff($col, $default_colors[$i]);
-			$color_distance[] = $diff;
-			if($r == 0 && $g == 0 && $b == 0){
+			//we only care if there are 4 pixel in a row with the color
+			if($inst == $inst1 && $inst == $inst2 && $inst == $inst3){
 				
-			}else{
-				if($diff > 80){
-					//the key is beeing pressed figure out what instrument
-					$instruemnt_nr = null;
-					foreach($instrumet_colors AS $instrument => $ins_col){
-						$ins_diff = colorDiff_Instrument($col, $ins_col);
-						if($ins_diff < 50){
-						//if($ins_diff < 250){
-							//samecolor
-							$instruemnt_nr = $instrument;
-							break;
+				$instx1 = get_instrument(imagecolorat($im, $x-1, $y));
+				$instx2 = get_instrument(imagecolorat($im, $x+1, $y));
+				//we also only care if there are 3 pixel side to side
+				if($inst == $instx1 && $inst == $instx2){
+					if(!in_array($rgb, $video_colors)){
+						$video_colors[] = $rgb;
+						echo("New color: ".$rgb."\n");
+						if($marking){
+							$im_write = imagecreatefrompng($image_folder.$frame_image_file);
+							$red_col = imagecolorallocate($im_write, 255,0,0);
+
+							//Right corner color indicator
+							imagefilledrectangle($im_write, 0, 0, 15, 15, $rgb);
+
+							//where is the color
+							imagefilledrectangle($im_write, intval($x)-1, $y-1, intval($x)+1, $y+1, $red_col);
+							imagepng($im_write, 'markings/'.$rgb.'.png');
+							imagedestroy($im_write);
 						}
 					}
-					if(is_null($instruemnt_nr)){
-						echo "new instrument:  diff($ins_diff) key($i)";
-						$midi->newTrack();
-						var_dump($col);
-						echo "\n";
-						//exit;
-						$instrumet_colors[] = $col;
-						$instruemnt_nr = count($instrumet_colors)-1;
-						//$midi->addMsg($instruemnt_nr,"1 TimeSig 3/4 24 8");
-						$midi->addMsg($instruemnt_nr,"1 Tempo 750002");
-						$midi->addMsg($instruemnt_nr,"1 Meta 0x21 00");
-						//$midi->addMsg($instruemnt_nr,"1 KeySig 3 major");
-
-						//$midi->addMsg($instruemnt_nr,"1 On ch=1 n=21 v=49");
-						//$midi->addMsg($instruemnt_nr,"1 On ch=1 n=1 v=49");
-						
+					//Do we know what instrument this color is
+					if(isset($specified_instrumet_colors[$rgb])){
+						$red = imagecolorallocate($im, 255, 0, 0);
+						imagefilledrectangle($im, intval($x)-1, $y-1, intval($x)+1, $y+1, $red);
+						$own_instrument_id = $specified_instrumet_colors[$rgb];
+						if(!isset($midi_instruments[$own_instrument_id])){
+							$track_id = $midi->newTrack();
+							$midi_instruments[$own_instrument_id] = $track_id;
+							echo "new instrument: $track_id key($i)\n";
+							//exit;
+							//$midi->addMsg($instruemnt_nr,"1 TimeSig 3/4 24 8");
+							$midi->addMsg($track_id,"1 Tempo 750002");
+							$midi->addMsg($track_id,"1 Meta 0x21 00");
+							//$midi->addMsg($instruemnt_nr,"1 KeySig 3 major");
+						}
+						$pressed = $midi_instruments[$own_instrument_id];
 					}
-					$pressed = $instruemnt_nr;
-					echo "key $i heled intrument: $pressed\n";
 				}
 			}
-
-			$keys[]= $pressed;
-			//$color_distance[] = colorDiff($col, $col);
-		}else{
-			//$default_colors = array();
 		}
-
-
-		if($piano_keys[$i] != $pixel){
-			//echo "pixel at $x is: $pixel it shoulde be: ".$piano_keys[$i]."\n";
-			//exit;
-		}
-
-/*
-			if($pixel == $last){
-				$samecount++;
-			}else{
-				if($samecount > $min_black_key_width){
-					// this was a key saving it
-				}
-				$samecount = 0;
-			}
-*/
-
-		$last = $pixel;
-		$light[] = $pixel;
-		if($r == 0 && $g == 0 && $b == 0){
-			
-		}else{
-			$all_black = false;
-	//		echo "$r, $g, $b\n";
-		}
-		$x++;
+		$keys[]= $pressed;
 		$i++;
 	}
 
@@ -225,13 +206,17 @@ foreach($scanned_directory AS $frame_key => $frame_image_file){
 		}
 	}
 
+	echo implode("", $keys)." ".$frame_image_file."\n";
+
+	$save = false;
+
 	//Add keys to midi file
 	foreach($last_keys AS $keyid => $last_key){
 		if($last_key !== $keys[$keyid]){
 			$tr  = $keys[$keyid];
 			$com = "On";
 			$v=49;
-			$timestamp = ($frame_nr*20);
+			$timestamp = intval(($frame_nr*21));
 			//XXXXXXX Fix one note after another is an issue
 			if($keys[$keyid] === "_"){// if no key is pressed Turn off key
 				$tr  = $last_key;
@@ -242,10 +227,21 @@ foreach($scanned_directory AS $frame_key => $frame_image_file){
 				$midi->addMsg($last_key,($timestamp)." $com ch=1 n=".($keyid+21)." v=0");
 				
 			}
-			echo $tr.", ".($timestamp)." $com ch=1 n=".($keyid+21)." v=".$v."\n";
+			//echo $tr.", ".($timestamp)." $com ch=1 n=".($keyid+21)." v=".$v."\n";
 			$midi->addMsg($tr,($timestamp)." $com ch=1 n=".($keyid+21)." v=".$v);
+			$save = true;
 		}
 		
+	}
+	if($save){
+		imagepng($im, $image_folder.$frame_image_file.'.mark.png');
+	}
+	if(!$ready){
+		$default_colors = $colors;
+		echo "we are ready";
+		//echo implode(",", $default_colors);
+		echo "\n";
+		$ready = true;
 	}
 
 	if(!$all_black){
@@ -261,21 +257,16 @@ foreach($scanned_directory AS $frame_key => $frame_image_file){
 		}
 		//echo implode("", $light);
 		if($piano_keys == $light){
-			if(!$ready){
-				$default_colors = $colors;
-				echo "we are ready";
-				//echo implode(",", $default_colors);
-				echo "\n";
-				$ready = true;
-			}
-			//echo "arrays are equal\n";
+				//echo "arrays are equal\n";
 		}
-		echo "\n\n";
+		//echo "\n\n";
 //}
 	}
-	if($frame_nr == 218){
-		//imagepng($im, 'imagefilledrectangle.png');
-		//exit;
+	if(false && $frame_nr == 1147){//890 is also intressing 877 = normal
+		if($DEBUG_read_points){
+			imagepng($im, 'imagefilledrectangle.png');
+		}
+		exit;
 	}
 
 	imagedestroy($im);
@@ -285,6 +276,30 @@ foreach($scanned_directory AS $frame_key => $frame_image_file){
 
 
 $midi->saveMidFile('song.mid');
+
+
+function get_instrument($rgb){
+	global $specified_instrumet_colors;
+	if(isset($specified_instrumet_colors[$rgb])){
+		return $specified_instrumet_colors[$rgb];
+	}
+	return 'none';
+}
+
+function same_col($rgb1, $rgb2){
+	$r = ($rgb1 >> 16) & 0xFF;
+	$g = ($rgb1 >> 8) & 0xFF;
+	$b = $rgb1 & 0xFF;
+		
+	$col1 = array($r,$g,$b);
+
+	$r = ($rgb2 >> 16) & 0xFF;
+	$g = ($rgb2 >> 8) & 0xFF;
+	$b = $rgb2 & 0xFF;
+		
+	$col2 = array($r,$g,$b);
+	return colorDiff($col1,$col2);
+}
 
 function colorDiff_Instrument($rgb1,$rgb2)
 {

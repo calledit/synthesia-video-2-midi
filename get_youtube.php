@@ -25,19 +25,26 @@ if($timecut == 0){
 	$timecut = intval($vid_stream['duration']);
 }
 
-run('rm -r piano_out_imgs');
-@mkdir('piano_out_imgs');
 
-//we asume the keys are located 83% down in the image
-$key_y_cordinates = intval($vid_stream['height']*0.83);
-$key_y_bottom_cordinates = intval($vid_stream['height']*0.95);
-$extracted_height = $vid_stream['height'] - $key_y_bottom_cordinates;
+//crop out a part of the video
+$key_y_cordinates = intval($vid_stream['height']*0.50);
+$extracted_height = intval($vid_stream['height']*0.10);
 
-run('ffmpeg -i piano_video.mp4 -t '.$timecut.' -filter:v "crop='.$vid_stream['width'].':'.$extracted_height.':0:'.$key_y_cordinates.'" piano_out_imgs/output_%05d.png');
+//run('ffmpeg -i piano_video.mp4 -t '.$timecut.' -filter:v "crop='.$vid_stream['width'].':'.$extracted_height.':0:'.$key_y_cordinates.'" piano_out_imgs/output_%05d.png');
 
 // if i want to do masking
 echo("cropping video.\n");
-//run('ffmpeg -y -i piano_video.mp4 -filter:v "crop='.$vid_stream['width'].':'.$extracted_height.':0:'.$key_y_cordinates.'" piano_croped.mp4');
+run('ffmpeg -y -i piano_video.mp4 -filter:v "crop='.$vid_stream['width'].':'.$extracted_height.':0:'.$key_y_cordinates.'" -c:v libx264 -qp 0 piano_croped.mp4');
+
+echo("Extracting and reducing colors\n");
+run('ffmpeg -y -i piano_croped.mp4 -vf "palettegen=max_colors=10" palette.png');
+run('ffmpeg -y -i piano_croped.mp4 -i palette.png -filter_complex "paletteuse=dither=none" -c:v libx264 -qp 0 reduced_colors.mp4');
+
+echo("Generating images\n");
+@mkdir('piano_out_imgs');
+run('rm -r piano_out_imgs');
+mkdir('piano_out_imgs');
+run('ffmpeg -y -i reduced_colors.mp4 -t '.$timecut.' piano_out_imgs/output_%05d.png');
 
 //
 //echo("Extracting first frame.\n");
